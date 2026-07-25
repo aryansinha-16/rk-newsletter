@@ -1,19 +1,5 @@
 [
   {
-    "date": "2026-07-14",
-    "title": "Renewable energy boost: Aditya Birla Group to buy Shell-backed Sprng Energy; deal worth $1.8 billion",
-    "url": "https://timesofindia.indiatimes.com/business/india-business/renewable-energy-boost-aditya-birla-group-to-buy-shell-backed-sprng-energy-deal-worth-1-8-billion/articleshow/132370790.cms",
-    "key": "aditya backed billion birla boost deal energy group renewable shell sprng worth",
-    "company": "Aditya Birla Group"
-  },
-  {
-    "date": "2026-07-14",
-    "title": "MoU signed between Telangana govt, Amazon to set up rest stops for gig workers",
-    "url": "https://www.indiagazette.com/news/279185460/mou-signed-between-telangana-govt-amazon-to-set-up-rest-stops-for-gig-workers",
-    "key": "amazon between govt rest signed stops telangana workers",
-    "company": "Amazon India"
-  },
-  {
     "date": "2026-07-15",
     "title": "Flipkart likely to sell stake worth Rs 700 crore in Shadowfax Technologies",
     "url": "https://www.moneycontrol.com/news/business/markets/flipkart-likely-to-sell-stake-worth-rs-700-crore-in-shadowfax-technologies-13972206.html",
@@ -271,5 +257,54 @@
     "url": "https://northeastlivetv.com/topnews/china-india-are-partners-not-competitors-chinese-fm-wang-yi-after-meeting-eam-jaishankar-in-manila/",
     "key": "after china chinese competitors india jaishankar manila meeting partners wang",
     "company": ""
+  },
+  {
+    "date": "2026-07-25",
+    "title": "India relaxes e-commerce investment rules for exports in win for Amazon",
+    "url": "https://www.reuters.com/world/india/india-relaxes-e-commerce-investment-rules-exports-win-amazon-2026-07-23/",
+    "key": "amazon commerce exports india investment relaxes rules",
+    "company": "Amazon India"
+  },
+  {
+    "date": "2026-07-25",
+    "title": "Flipkart Set To Enter Food Delivery Market In Coming Weeks",
+    "url": "https://inc42.com/buzz/flipkart-set-to-enter-food-delivery-market-in-coming-weeks/",
+    "key": "coming delivery enter flipkart food market weeks",
+    "company": "Flipkart"
+  },
+  {
+    "date": "2026-07-25",
+    "title": "Eight Roads Investments, Flipkart Internet offload Shadowfax shares worth Rs 1,654 crore",
+    "url": "https://www.moneycontrol.com/news/business/markets/eight-roads-investments-flipkart-internet-offload-shadowfax-shares-worth-rs-1-654-crore-13983124.html",
+    "key": "crore eight flipkart internet investments offload roads shadowfax shares worth",
+    "company": "Flipkart"
+  },
+  {
+    "date": "2026-07-25",
+    "title": "Ordered iPhone, got beard oil: Mumbai consumer court orders Flipkart to pay over Rs 1.8 lakh",
+    "url": "https://www.mid-day.com/amp/mumbai/mumbai-crime-news/article/ordered-iphone-got-beard-oil-mumbai-consumer-court-orders-flipkart-to-pay-over-rs-1-8-lakh-23641379",
+    "key": "beard consumer court flipkart iphone lakh mumbai ordered orders over",
+    "company": "Flipkart"
+  },
+  {
+    "date": "2026-07-25",
+    "title": "Blinkit is coming for Amazon\u2019s shelf",
+    "url": "https://www.businesstoday.in/markets/story/blinkit-is-coming-for-amazons-shelf-544999-2026-07-24",
+    "key": "amazon blinkit coming shelf",
+    "company": "Amazon India"
+  },
+  {
+    "date": "2026-07-25",
+    "title": "OpenAI agents have lifted support resolution 50%, cut turnaround time 80%: Cars24 CEO",
+    "url": "https://economictimes.indiatimes.com/tech/artificial-intelligence/openai-agents-have-lifted-support-resolution-50-cut-turnaround-time-80-cars24-ceo/articleshow/132607629.cms",
+    "key": "agents cars24 have lifted openai resolution support time turnaround",
+    "company": "Cars24"
+  },
+  {
+    "date": "2026-07-25",
+    "title": "Cars24 Strengthens Presence in Visakhapatnam with New Customer Hub",
+    "url": "https://www.metroindia.net/news/articlenews/cars-strengthens-presence-in-visakhapatnam-with-new-customer-hub--43034",
+    "key": "cars24 customer presence strengthens visakhapatnam with",
+    "company": "Cars24"
   }
 ]
