@@ -1,26 +1,5 @@
 [
   {
-    "date": "2026-08-03",
-    "title": "Flipkart eyes food delivery launch around August 15, targets 10% commission",
-    "url": "https://www.moneycontrol.com/news/business/startup/flipkart-eyes-food-delivery-launch-around-august-15-targets-10-commission-13991218.html",
-    "key": "around august commission delivery eyes flipkart food launch targets",
-    "company": "Flipkart"
-  },
-  {
-    "date": "2026-08-03",
-    "title": "After layoffs in AGI division, shutdown of Lab, Amazon is reorganizing teams and refocusing its AI strate",
-    "url": "https://timesofindia.indiatimes.com/technology/tech-news/after-layoffs-in-agi-division-shutdown-of-lab-amazon-is-reorganizing-teams-and-refocusing-its-ai-strategy/articleshow/132796645.cms",
-    "key": "after amazon division layoffs refocusing reorganizing shutdown strate teams",
-    "company": "Amazon India"
-  },
-  {
-    "date": "2026-08-03",
-    "title": "Blinkit Hits Profitability Milestone as Quick Commerce Shifts Strategy",
-    "url": "https://www.whalesbook.com/news/English/technology/Blinkit-Hits-Profitability-Milestone-as-Quick-Commerce-Shifts-Strategy/6a6c302d0f4505b5a03a3ba8",
-    "key": "blinkit commerce hits milestone profitability quick shifts strategy",
-    "company": "Blinkit"
-  },
-  {
     "date": "2026-08-04",
     "title": "Anthropic brings Claude in-country inference to India via Amazon Bedrock",
     "url": "https://www.thehindubusinessline.com/info-tech/anthropic-brings-claude-in-country-inference-to-india-via-amazon-bedrock/article71301379.ece",
@@ -249,6 +228,48 @@
     "title": "India warns incidents on disputed border will affect China relations",
     "url": "https://www.japantimes.co.jp/news/2026/08/12/asia-pacific/politics/india-border-china-relations/",
     "key": "affect border china disputed incidents india relations warns will",
+    "company": ""
+  },
+  {
+    "date": "2026-08-14",
+    "title": "Flipkart Group X Meta India Powering India\u2019s Creator Commerce Revolution",
+    "url": "https://www.indianretailer.com/article/technology-e-commerce/ecommerce/flipkart-group-x-meta-india-powering-indias-creator",
+    "key": "commerce creator flipkart group india meta powering revolution",
+    "company": "Flipkart"
+  },
+  {
+    "date": "2026-08-14",
+    "title": "Myntra failed to deliver order, then cancelled without explanation: Customer lost chance to buy 5-gram gol",
+    "url": "https://m.economictimes.com/news/new-updates/myntra-failed-to-deliver-order-then-cancelled-without-explanation-customer-lost-chance-to-buy-5-gram-gold-at-lower-price-consumer-court-orders-rs-60000-payout/articleshow/133172135.cms",
+    "key": "cancelled chance customer deliver explanation failed gram lost myntra order then without",
+    "company": "Myntra"
+  },
+  {
+    "date": "2026-08-14",
+    "title": "La Pink launches on Myntra M-Now, eyes 30% revenue from quick commerce",
+    "url": "https://mediabrief.com/la-pink-launches-on-myntra-m-now/",
+    "key": "commerce eyes from launches myntra pink quick revenue",
+    "company": "Myntra"
+  },
+  {
+    "date": "2026-08-14",
+    "title": "Aditya Birla Group\u2019s new brand fee could fetch promoter entity \u20b91,000 cr a year",
+    "url": "https://www.livemint.com/companies/news/aditya-birla-group-s-new-brand-fee-could-fetch-promoter-entity-1-000-cr-a-year-11786630223996.html",
+    "key": "aditya birla brand could entity fetch group promoter year",
+    "company": "Aditya Birla Group"
+  },
+  {
+    "date": "2026-08-14",
+    "title": "Cars24, Spinny, Droom seek new growth engines as profits remain elusive",
+    "url": "https://www.livemint.com/companies/news/cars24-spinny-droom-seek-new-growth-engines-as-profits-remain-elusive-11786603825467.html",
+    "key": "cars24 droom elusive engines growth profits remain seek spinny",
+    "company": "Cars24"
+  },
+  {
+    "date": "2026-08-14",
+    "title": "China says India border 'generally stable' amid tensions in Arunachal",
+    "url": "https://timesofindia.indiatimes.com/india/china-says-india-border-generally-stable-amid-tensions-in-arunachal/articleshow/133186633.cms",
+    "key": "amid arunachal border china generally india says stable tensions",
     "company": ""
   }
 ]
