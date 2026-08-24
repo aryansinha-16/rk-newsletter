@@ -10,6 +10,7 @@ so the next run can exclude it (story-level dedup).
 
 import os
 import re
+import html
 import json
 import base64
 import requests
@@ -17,7 +18,21 @@ import requests
 GITHUB_REPO = os.getenv("GITHUB_REPO", "aryansinha-16/rk-newsletter-crew")
 GITHUB_BRANCH = os.getenv("GITHUB_BRANCH", "master")
 HISTORY_PATH = "sent_history.json"
-RETENTION_DAYS = 10
+
+# Two different jobs need two different horizons:
+#   ARCHIVE_DAYS — how long a story stays in the file and in the code-level
+#     harvest filter. This is the real "have we sent this before?" memory and
+#     it must be long. It used to be 10, which meant a story was PERMANENTLY
+#     deleted on day 11 and could be re-sent verbatim — the cause of the
+#     ~2-week repeat cycle.
+#   PROMPT_DAYS — how many headlines we paste into the model's DO-NOT-REPEAT
+#     list. Kept short so the prompt doesn't bloat; the code filter below is
+#     what actually guarantees no repeats.
+ARCHIVE_DAYS = int(os.getenv("HISTORY_ARCHIVE_DAYS", "180"))
+PROMPT_DAYS = int(os.getenv("HISTORY_PROMPT_DAYS", "14"))
+
+# Back-compat alias for anything still importing the old name.
+RETENTION_DAYS = ARCHIVE_DAYS
 
 _API = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{HISTORY_PATH}"
 
@@ -33,12 +48,47 @@ def _headers():
     }
 
 
+# Serper/RSS routinely append the outlet: "... - Reuters", "... | Mint".
+# That extra word changes the key, so the same story from two outlets used to
+# read as two stories — the exact case this key is supposed to collapse.
+_SOURCE_SUFFIX_RE = re.compile(r"\s+[-|–—]\s+[^-|–—]{1,40}$")
+
+
 def normalize_headline(title: str) -> str:
     """Loose key so the same story from different outlets collapses together."""
+    stripped = _SOURCE_SUFFIX_RE.sub("", title or "")
+    # Only accept the strip if enough of the headline survives, so we don't
+    # over-collapse a title whose real content sits after a dash.
+    if len([w for w in stripped.split() if len(w) > 3]) >= 4:
+        title = stripped
     title = title.lower()
     title = re.sub(r"[^a-z0-9 ]", " ", title)
     words = [w for w in title.split() if len(w) > 3]
     return " ".join(sorted(set(words)))
+
+
+_TRACKING_PREFIXES = ("utm_", "fbclid", "gclid", "mc_cid", "mc_eid", "igshid",
+                      "cmpid", "ref", "source", "at_medium", "at_campaign")
+
+
+def normalize_url(url: str) -> str:
+    """Stable dedup key for an article URL.
+
+    Unescapes HTML entities (hrefs arrive as `&amp;`-encoded), then strips
+    scheme, www, fragment, tracking params and trailing slash, so the same
+    article shared with different tails collapses to one key.
+    """
+    u = html.unescape((url or "").strip()).lower()
+    u = re.sub(r"^https?://", "", u)
+    u = re.sub(r"^www\.", "", u)
+    u = u.split("#")[0]
+    base, _, qs = u.partition("?")
+    base = base.rstrip("/")
+    keep = [
+        part for part in qs.split("&")
+        if part and not part.split("=")[0].startswith(_TRACKING_PREFIXES)
+    ]
+    return base + ("?" + "&".join(sorted(keep)) if keep else "")
 
 
 def load_history() -> tuple[list, str | None]:
@@ -61,7 +111,7 @@ def load_history() -> tuple[list, str | None]:
         return [], None
 
 
-def recent_titles(entries: list, today_iso: str, days: int = RETENTION_DAYS) -> list[str]:
+def recent_titles(entries: list, today_iso: str, days: int = PROMPT_DAYS) -> list[str]:
     """Headlines from the last `days` days, for the model's exclusion list."""
     cutoff = _shift_iso(today_iso, -days)
     return [e["title"] for e in entries if e.get("date", "") >= cutoff]
@@ -101,6 +151,12 @@ def sent_keys(entries: list) -> set[str]:
     return {e.get("key", "") for e in entries if e.get("key")}
 
 
+def sent_urls(entries: list) -> set[str]:
+    """Normalized URLs already emailed — catches the same article resurfacing
+    under a reworded headline, which the headline key alone would miss."""
+    return {normalize_url(e["url"]) for e in entries if e.get("url")}
+
+
 def _match_company(title: str, companies: list[str]) -> str:
     """Best-guess company for a story title, or '' if none matches."""
     low = title.lower()
@@ -120,19 +176,26 @@ def save_history(entries: list, new_stories: list[dict], sha: str | None,
 
     companies = companies or []
     seen = sent_keys(entries)
-    for s in new_stories:
-        key = normalize_headline(s["title"])
-        if key and key not in seen:
-            entries.append({
-                "date": today_iso,
-                "title": s["title"],
-                "url": s["url"],
-                "key": key,
-                "company": _match_company(s["title"], companies),
-            })
-            seen.add(key)
+    seen_urls = sent_urls(entries)
+    added = 0
+    for story in new_stories:
+        key = normalize_headline(story["title"])
+        nurl = normalize_url(story.get("url", ""))
+        if not key or key in seen or (nurl and nurl in seen_urls):
+            continue
+        entries.append({
+            "date": today_iso,
+            "title": story["title"],
+            "url": story["url"],
+            "key": key,
+            "company": _match_company(story["title"], companies),
+        })
+        seen.add(key)
+        if nurl:
+            seen_urls.add(nurl)
+        added += 1
 
-    cutoff = _shift_iso(today_iso, -RETENTION_DAYS)
+    cutoff = _shift_iso(today_iso, -ARCHIVE_DAYS)
     entries = [e for e in entries if e.get("date", "") >= cutoff]
 
     body = {
@@ -145,7 +208,8 @@ def save_history(entries: list, new_stories: list[dict], sha: str | None,
     try:
         resp = requests.put(_API, headers=headers, json=body, timeout=15)
         resp.raise_for_status()
-        print(f"  [history] saved {len(new_stories)} new stories ({len(entries)} retained).")
+        print(f"  [history] saved {added} new stories "
+              f"({len(entries)} retained, {ARCHIVE_DAYS}-day archive).")
     except Exception as e:
         print(f"  [history] save failed: {e}")
 

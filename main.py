@@ -62,9 +62,14 @@ CANDIDATES: dict[str, str] = {}
 # Stories actually included in the email that went out (filled by _send_email).
 SENT_STORIES: list[dict] = []
 
-# Normalized headline keys already emailed in the retention window. Used to
+# Normalized headline keys already emailed in the archive window. Used to
 # pre-filter search/RSS results so the model never even sees old stories.
 SENT_KEYS: set[str] = set()
+
+# Normalized URLs already emailed. A second filter alongside SENT_KEYS: it
+# catches the same article resurfacing after an outlet rewords the headline,
+# which the headline key on its own would let straight through.
+SENT_URLS: set[str] = set()
 
 
 # ---------------------------------------------------------------------------
@@ -93,7 +98,9 @@ def _search_news(query: str) -> str:
                 continue
             title = item.get("title", "")
             if hist.normalize_headline(title) in SENT_KEYS:
-                continue  # already emailed in the last 10 days
+                continue  # already emailed inside the archive window
+            if hist.normalize_url(url) in SENT_URLS:
+                continue  # same article, possibly a reworded headline
             CANDIDATES[url] = title
             results.append(
                 f"TITLE: {item.get('title', '')}\n"
@@ -128,7 +135,9 @@ def _fetch_rss_news(company: str) -> str:
                 if company.lower() in title.lower() or company.lower() in desc.lower():
                     if link:
                         if hist.normalize_headline(title) in SENT_KEYS:
-                            continue  # already emailed in the last 10 days
+                            continue  # already emailed inside the archive window
+                        if hist.normalize_url(link) in SENT_URLS:
+                            continue  # same article, possibly a reworded headline
                         CANDIDATES[link] = title
                         results.append(
                             f"TITLE: {title}\n"
@@ -141,13 +150,64 @@ def _fetch_rss_news(company: str) -> str:
     return "\n\n---\n\n".join(results[:5]) if results else f"No RSS results found for {company}."
 
 
-def _send_email(to: str, subject: str, body_html: str) -> str:
-    # Record which stories actually made it into the email so we can remember
-    # them and skip them on future runs. Match the hrefs back to candidate titles.
-    for href in re.findall(r'href=["\']([^"\']+)["\']', body_html):
-        title = CANDIDATES.get(href)
+_TAG_RE = re.compile(r"<[^>]+>")
+_ENTITY_RE = re.compile(r"&[a-zA-Z]+;|&#\d+;")
+_HREF_RE = re.compile(r"""href=["']([^"']+)["']""")
+
+
+def _headline_near(body_html: str, pos: int) -> str:
+    """Fallback title for a link whose URL isn't in CANDIDATES.
+
+    The model sometimes emits a URL that doesn't string-match anything we
+    harvested (a canonical form, an AMP variant, a redirect). Those used to be
+    dropped on the floor and never remembered, so they could repeat at any
+    interval. Recover a title from the bullet text just before the link.
+    """
+    chunk = body_html[max(0, pos - 600):pos]
+    cut = max(chunk.rfind(tag) for tag in ("<li", "<p", "<td", "<br"))
+    if cut != -1:
+        chunk = chunk[cut:]
+    # `pos` lands inside the opening <a ...> tag, so the chunk ends on an
+    # unclosed tag. Drop it or the title picks up a stray "<a".
+    lt, gt = chunk.rfind("<"), chunk.rfind(">")
+    if lt > gt:
+        chunk = chunk[:lt]
+    text = _ENTITY_RE.sub(" ", _TAG_RE.sub(" ", chunk))
+    return " ".join(text.split())[-200:].strip()
+
+
+def _capture_sent_stories(body_html: str) -> None:
+    """Record every story that actually went out, so future runs skip it.
+
+    Matches each link back to a harvested candidate by exact URL first, then by
+    normalized URL, then falls back to the surrounding bullet text. Previously
+    only the exact match was tried, so roughly half the newsletter was never
+    banked and stayed permanently repeatable.
+    """
+    norm_index = {hist.normalize_url(u): t for u, t in CANDIDATES.items()}
+    seen: set[str] = set()
+    recovered = 0
+    for match in _HREF_RE.finditer(body_html):
+        href = match.group(1)
+        if not href.lower().startswith("http"):
+            continue  # mailto:, in-page anchors, etc.
+        nurl = hist.normalize_url(href)
+        if not nurl or nurl in seen:
+            continue
+        seen.add(nurl)
+        title = CANDIDATES.get(href) or norm_index.get(nurl)
+        if not title:
+            title = _headline_near(body_html, match.start())
+            if title:
+                recovered += 1
         if title:
             SENT_STORIES.append({"title": title, "url": href})
+    print(f"  [history] captured {len(SENT_STORIES)} stories from the email "
+          f"({recovered} recovered from bullet text).")
+
+
+def _send_email(to: str, subject: str, body_html: str) -> str:
+    _capture_sent_stories(body_html)
 
     recipients = [r.strip() for r in to.split(",") if r.strip()]
     results = []
@@ -311,18 +371,22 @@ def run_newsletter():
     print(f"Recipients: {recipient_str}")
     print(f"{'='*60}\n")
 
-    # Load what we've already sent (last 10 days) so we don't repeat stories.
+    # Load what we've already sent so we don't repeat stories. The code filter
+    # uses the full archive; the model only sees the recent slice.
     history_entries, history_sha = hist.load_history()
     SENT_KEYS.update(hist.sent_keys(history_entries))
+    SENT_URLS.update(hist.sent_urls(history_entries))
     already_covered = hist.recent_titles(history_entries, today_iso)
-    print(f"  [history] {len(already_covered)} stories covered in the last 10 days.")
+    print(f"  [history] {len(history_entries)} stories in the "
+          f"{hist.ARCHIVE_DAYS}-day archive; {len(already_covered)} listed for "
+          f"the model (last {hist.PROMPT_DAYS} days).")
 
     exclusion_block = ""
     if already_covered:
         listed = "\n".join(f"- {t}" for t in already_covered)
         exclusion_block = f"""
 
-ALREADY COVERED — DO NOT REPEAT THESE STORIES (sent in the last 10 days).
+ALREADY COVERED — DO NOT REPEAT THESE STORIES (sent in the last {hist.PROMPT_DAYS} days).
 This includes the same story reported by a different outlet. If a search result
 is about any of these, SKIP it and look for genuinely new developments only:
 {listed}
