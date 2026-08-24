@@ -455,6 +455,9 @@ is about any of these, SKIP it and look for genuinely new developments only:
         "date_display": today,
         "footer": f"{BRAND} | {today} | Confidential",
         "recipients": recipient_str,
+        # Surfaced in the email itself. A dead GITHUB_TOKEN must never produce
+        # an edition that looks normal.
+        "degraded": not hist.LAST_LOAD_OK,
     })
     system = (
         "You research and publish a daily business intelligence newsletter for RK Group. "

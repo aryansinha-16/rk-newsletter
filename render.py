@@ -104,7 +104,16 @@ def _company(item):
       </td></tr>"""
 
 
-def _quiet(quiet):
+def _quiet(quiet, degraded=False):
+    if degraded:
+        names = " &middot; ".join(esc(q["company"]) for q in quiet)
+        return f"""      <tr><td class="pad" style="background:#ffffff;padding:8px 40px 4px 40px;">
+        <div style="border-top:1px solid {RULE};padding-top:10px;font:400 10px/1 {SERIF};
+                    letter-spacing:.22em;text-transform:uppercase;color:{MUTED};">
+          No news today &mdash; {len(quiet)}</div>
+        <div style="font:400 12px/1.7 {SERIF};color:{MUTED};padding-top:6px;">{names}</div>
+      </td></tr>"""
+
     lines = "".join(f"""<tr>
                   <td width="146" valign="top" style="width:146px;padding:6px 12px 6px 0;
                              font:700 11px/1.4 {SERIF};letter-spacing:.06em;text-transform:uppercase;
@@ -123,6 +132,24 @@ def _quiet(quiet):
       </td></tr>"""
 
 
+def _degraded_notice():
+    """Shown when the sent-story archive could not be read.
+
+    Without it a broken token looks like an ordinary edition: dedup is off, so
+    stories can repeat, and every company truthfully-but-uselessly reports no
+    last-known news. That went unnoticed for a month once.
+    """
+    return f"""      <tr><td class="pad" style="background:#fdf4f2;padding:14px 40px;
+                 border-top:1px solid #e7cdc6;border-bottom:1px solid #e7cdc6;">
+        <div style="font:700 10px/1 {SERIF};letter-spacing:.2em;text-transform:uppercase;
+                    color:{ACCENT};padding-bottom:6px;">Running without memory</div>
+        <div style="font:400 13px/1.55 {SERIF};color:{INK};">
+          The sent-story archive could not be read this run, so repeat-story
+          filtering was OFF and no &ldquo;last known&rdquo; history is available.
+          Stories below may have been sent before. Check GITHUB_TOKEN.</div>
+      </td></tr>"""
+
+
 def _footer(ed):
     return f"""      <tr><td class="pad" align="center"
           style="background:#ffffff;padding:26px 40px 34px 40px;border-bottom:3px solid {INK};">
@@ -133,7 +160,11 @@ def _footer(ed):
 
 def render(ed):
     """Edition dict -> full HTML email body."""
-    rows = [_masthead(ed), _brief(ed)]
+    degraded = bool(ed.get("degraded"))
+    rows = [_masthead(ed)]
+    if degraded:
+        rows.append(_degraded_notice())
+    rows.append(_brief(ed))
     for sec in ed["sections"]:
         if sec.get("label"):
             rows.append(_section_label(sec["label"]))
@@ -142,7 +173,7 @@ def render(ed):
             if item.get("fresh"):
                 rows.append(_company(item))
         if quiet:
-            rows.append(_quiet(quiet))
+            rows.append(_quiet(quiet, degraded))
     rows.append(_footer(ed))
     inner = "\n".join(r for r in rows if r)
 

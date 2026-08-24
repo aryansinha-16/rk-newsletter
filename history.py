@@ -36,6 +36,13 @@ RETENTION_DAYS = ARCHIVE_DAYS
 
 _API = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{HISTORY_PATH}"
 
+# Set by load_history(). False means the archive could NOT be read — missing or
+# rejected token, network error — which is very different from "read fine, but
+# empty". A dead token once degraded a newsletter silently for a month: dedup
+# was off and every company reported "no last known news", which looks like
+# ordinary output. Callers must surface this, not absorb it.
+LAST_LOAD_OK = True
+
 
 def _headers():
     token = os.getenv("GITHUB_TOKEN")
@@ -93,13 +100,20 @@ def normalize_url(url: str) -> str:
 
 def load_history() -> tuple[list, str | None]:
     """Return (entries, file_sha). entries = [{date, title, url, key}]."""
+    global LAST_LOAD_OK
+    LAST_LOAD_OK = True
     headers = _headers()
     if not headers:
+        LAST_LOAD_OK = False
         print("  [history] GITHUB_TOKEN not set — running without dedup memory.")
         return [], None
     try:
         resp = requests.get(_API, headers=headers, params={"ref": GITHUB_BRANCH}, timeout=15)
         if resp.status_code == 404:
+            # A genuinely fresh repo. Say so rather than returning empty in
+            # silence, which is indistinguishable from a wrong GITHUB_REPO.
+            print(f"  [history] no {HISTORY_PATH} in {GITHUB_REPO}@{GITHUB_BRANCH} yet "
+                  f"— starting a fresh archive.")
             return [], None
         resp.raise_for_status()
         data = resp.json()
@@ -107,7 +121,11 @@ def load_history() -> tuple[list, str | None]:
         entries = json.loads(content) if content.strip() else []
         return entries, data["sha"]
     except Exception as e:
+        LAST_LOAD_OK = False
         print(f"  [history] load failed ({e}) — running without dedup memory.")
+        print("  [history] the edition will be marked as running without memory. "
+              "Check GITHUB_TOKEN: 401 = dead credential, 403 = missing "
+              "Contents:Read-and-write, 404 = wrong GITHUB_REPO.")
         return [], None
 
 
