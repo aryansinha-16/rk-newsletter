@@ -51,6 +51,19 @@ RK_GROUP_CONTEXT = """RK Group is a brand distribution and retail business with 
 - Last-mile logistics and quick commerce
 Focus on news that is directly actionable or reveals competitive intelligence relevant to these areas."""
 
+# Readers are in India, the Railway container runs UTC. Stamp the edition and
+# the history key with the IST date so they match the day the readers are
+# actually having. At the 02:30 UTC cron the two dates coincide by luck; any
+# cron after 18:30 UTC would have stamped yesterday for every reader, and that
+# same value keys the dedup archive. IST is UTC+05:30 with no DST, ever, so a
+# fixed offset is exact and needs no tzdata in the slim image.
+IST = timezone(timedelta(hours=5, minutes=30))
+
+# One source of truth for the harvest window. Serper was on qdr:1d while the
+# RSS reader was on 2 days, so a newsletter that says "news from the past day"
+# could carry two-day-old RSS items.
+HARVEST_DAYS = int(os.getenv("HARVEST_DAYS", "1"))
+
 RSS_FEEDS = {
     "Inc42": "https://inc42.com/feed/",
     "YourStory": "https://yourstory.com/feed",
@@ -99,7 +112,7 @@ def _search_news(query: str) -> str:
         resp = requests.post(
             "https://google.serper.dev/news",
             headers={"X-API-KEY": api_key, "Content-Type": "application/json"},
-            json={"q": query, "num": 5, "tbs": "qdr:1d", "gl": "in", "hl": "en"},
+            json={"q": query, "num": 5, "tbs": f"qdr:{HARVEST_DAYS}d", "gl": "in", "hl": "en"},
             timeout=15,
         )
         resp.raise_for_status()
@@ -130,7 +143,7 @@ def _search_news(query: str) -> str:
 
 def _fetch_rss_news(company: str) -> str:
     results = []
-    cutoff = datetime.now(timezone.utc) - timedelta(days=2)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=HARVEST_DAYS)
     for source, url in RSS_FEEDS.items():
         try:
             resp = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
@@ -294,7 +307,7 @@ def dispatch_tool(name: str, inputs: dict) -> str:
 TOOLS = [
     {
         "name": "search_news",
-        "description": "Search Google News for recent articles about a company or topic (past 2 days). Returns real articles with verified URLs only.",
+        "description": f"Search Google News for recent articles about a company or topic (past {HARVEST_DAYS} day(s)). Returns real articles with verified URLs only.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -305,7 +318,7 @@ TOOLS = [
     },
     {
         "name": "fetch_rss_news",
-        "description": "Fetch recent news about a company from Indian business RSS feeds (Inc42, YourStory, Entrackr, Mint). Only returns articles from the past 2 days.",
+        "description": f"Fetch recent news about a company from Indian business RSS feeds (Inc42, YourStory, Entrackr, Mint). Only returns articles from the past {HARVEST_DAYS} day(s).",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -414,7 +427,7 @@ def run_newsletter():
     recipients_env = os.getenv("NEWSLETTER_RECIPIENTS", "aryan@valuecart.in")
     recipients = [r.strip() for r in recipients_env.split(",") if r.strip()]
     recipient_str = ", ".join(recipients)
-    now = datetime.now()
+    now = datetime.now(IST)
     today = now.strftime("%B %d, %Y")
     today_iso = now.strftime("%Y-%m-%d")
     company_list = "\n".join(f"- {c}" for c in COMPANIES)

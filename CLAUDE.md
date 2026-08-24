@@ -7,8 +7,16 @@ Researches news for a watchlist of Indian companies and emails an HTML newslette
 ## Stack
 - **Python 3.12** (no CrewAI — replaced with plain Anthropic API tool-use loop)
 - **Anthropic API** — claude-haiku-4-5-20251001, max_tokens=8096
-- **Serper API** — Google News search, `tbs=qdr:2d` (past 2 days only)
-- **RSS feeds** — Inc42, YourStory, Entrackr, Mint (filtered to past 2 days via pubDate)
+- **Serper API** — Google News search, window from `HARVEST_DAYS` (default 1 day)
+- **RSS feeds** — Inc42, YourStory, Entrackr, Mint, same `HARVEST_DAYS` window via pubDate.
+  Serper and RSS read ONE constant now; they used to disagree (`qdr:1d` vs 2 days),
+  so a "past day" newsletter could carry two-day-old RSS items. Override with the
+  `HARVEST_DAYS` env var.
+- **Timezone** — the edition date and the history key come from `datetime.now(IST)`,
+  a fixed UTC+05:30. The container runs UTC; at the 02:30 UTC cron the dates
+  coincide by luck, but any cron after 18:30 UTC would stamp yesterday for every
+  reader and write that date into the dedup archive. IST has no DST, so a fixed
+  offset is exact and needs no tzdata in the slim image.
 - **SendGrid** — via Railway MCP server at `https://valuecart-email-mcp-production.up.railway.app/mcp/valuecart2026`
 - **Railway** — deployed via Dockerfile, cron schedule triggers daily
 
