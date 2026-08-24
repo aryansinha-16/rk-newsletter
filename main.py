@@ -7,7 +7,6 @@ Plain Python + Anthropic API (no CrewAI)
 
 import os
 import sys
-import re
 import json
 import requests
 import xml.etree.ElementTree as ET
@@ -17,6 +16,7 @@ from dotenv import load_dotenv
 import anthropic
 
 import history as hist
+import render
 
 load_dotenv()
 sys.stdout = open(sys.stdout.fileno(), mode='w', encoding='utf-8', errors='replace', buffering=1)
@@ -37,6 +37,13 @@ COMPANIES = [
     "India China Relations",
 ]
 
+BRAND = "RK Group Intelligence"
+TAGLINE = "Daily business intelligence"
+
+# (section label, companies). A single unlabelled section keeps the flat list
+# the RK edition has always had; the renderer supports labelled sections too.
+SECTIONS = [("", COMPANIES)]
+
 RK_GROUP_CONTEXT = """RK Group is a brand distribution and retail business with interests in:
 - Fashion and apparel distribution (including Nike partnership via Westbury)
 - D2C brand building and marketplace management
@@ -55,8 +62,9 @@ RSS_FEEDS = {
 # Run-scoped state
 # ---------------------------------------------------------------------------
 
-# Every article surfaced this run, keyed by URL → title. Used to map the URLs
-# that end up in the sent email back to their headlines for the history store.
+# Every article surfaced this run, keyed by URL → title. submit_edition checks
+# each story's URL against this, so a link the model didn't get from a tool
+# result never reaches the email.
 CANDIDATES: dict[str, str] = {}
 
 # Stories actually included in the email that went out (filled by _send_email).
@@ -70,6 +78,13 @@ SENT_KEYS: set[str] = set()
 # catches the same article resurfacing after an outlet rewords the headline,
 # which the headline key on its own would let straight through.
 SENT_URLS: set[str] = set()
+
+# {company: {"date", "title"}} — the last story we sent per company, used for
+# the "quiet today" column. Code owns this line now, so it cannot go missing.
+RECAPS: dict[str, dict] = {}
+
+# brand / tagline / date_display / footer for the renderer.
+EDITION_META: dict = {}
 
 
 # ---------------------------------------------------------------------------
@@ -150,64 +165,7 @@ def _fetch_rss_news(company: str) -> str:
     return "\n\n---\n\n".join(results[:5]) if results else f"No RSS results found for {company}."
 
 
-_TAG_RE = re.compile(r"<[^>]+>")
-_ENTITY_RE = re.compile(r"&[a-zA-Z]+;|&#\d+;")
-_HREF_RE = re.compile(r"""href=["']([^"']+)["']""")
-
-
-def _headline_near(body_html: str, pos: int) -> str:
-    """Fallback title for a link whose URL isn't in CANDIDATES.
-
-    The model sometimes emits a URL that doesn't string-match anything we
-    harvested (a canonical form, an AMP variant, a redirect). Those used to be
-    dropped on the floor and never remembered, so they could repeat at any
-    interval. Recover a title from the bullet text just before the link.
-    """
-    chunk = body_html[max(0, pos - 600):pos]
-    cut = max(chunk.rfind(tag) for tag in ("<li", "<p", "<td", "<br"))
-    if cut != -1:
-        chunk = chunk[cut:]
-    # `pos` lands inside the opening <a ...> tag, so the chunk ends on an
-    # unclosed tag. Drop it or the title picks up a stray "<a".
-    lt, gt = chunk.rfind("<"), chunk.rfind(">")
-    if lt > gt:
-        chunk = chunk[:lt]
-    text = _ENTITY_RE.sub(" ", _TAG_RE.sub(" ", chunk))
-    return " ".join(text.split())[-200:].strip()
-
-
-def _capture_sent_stories(body_html: str) -> None:
-    """Record every story that actually went out, so future runs skip it.
-
-    Matches each link back to a harvested candidate by exact URL first, then by
-    normalized URL, then falls back to the surrounding bullet text. Previously
-    only the exact match was tried, so roughly half the newsletter was never
-    banked and stayed permanently repeatable.
-    """
-    norm_index = {hist.normalize_url(u): t for u, t in CANDIDATES.items()}
-    seen: set[str] = set()
-    recovered = 0
-    for match in _HREF_RE.finditer(body_html):
-        href = match.group(1)
-        if not href.lower().startswith("http"):
-            continue  # mailto:, in-page anchors, etc.
-        nurl = hist.normalize_url(href)
-        if not nurl or nurl in seen:
-            continue
-        seen.add(nurl)
-        title = CANDIDATES.get(href) or norm_index.get(nurl)
-        if not title:
-            title = _headline_near(body_html, match.start())
-            if title:
-                recovered += 1
-        if title:
-            SENT_STORIES.append({"title": title, "url": href})
-    print(f"  [history] captured {len(SENT_STORIES)} stories from the email "
-          f"({recovered} recovered from bullet text).")
-
-
 def _send_email(to: str, subject: str, body_html: str) -> str:
-    _capture_sent_stories(body_html)
 
     recipients = [r.strip() for r in to.split(",") if r.strip()]
     results = []
@@ -251,13 +209,81 @@ def _send_email(to: str, subject: str, body_html: str) -> str:
     return "\n".join(results)
 
 
+def _submit_edition(subject: str, exec_summary: list, stories: list) -> str:
+    """Render and send the edition from structured content.
+
+    Replaces the old flow where the model hand-wrote HTML into send_email.
+    Three things get better: the layout is identical every day, a fabricated
+    URL cannot reach the email, and the per-company "quiet today" line is
+    generated here rather than being something the model has to remember.
+    """
+    # A story may only cite a URL we actually harvested this run.
+    harvested = {hist.normalize_url(u) for u in CANDIDATES}
+    kept, rejected = [], []
+    for st in stories or []:
+        url = (st.get("url") or "").strip()
+        if not url or hist.normalize_url(url) not in harvested:
+            rejected.append(st.get("headline") or url or "?")
+            continue
+        company = st.get("company") or ""
+        if company not in COMPANIES:
+            company = _match_company(st.get("headline", ""), COMPANIES)
+        if not company:
+            rejected.append(st.get("headline") or "?")
+            continue
+        kept.append({
+            "company": company,
+            "headline": (st.get("headline") or "").strip(),
+            "why": (st.get("why") or "").strip(),
+            "url": url,
+        })
+    if rejected:
+        print(f"  [edition] dropped {len(rejected)} story/ies with no harvested URL:")
+        for r in rejected[:5]:
+            print(f"            - {r[:88]}")
+
+    by_company: dict[str, list] = {}
+    for st in kept:
+        by_company.setdefault(st["company"], []).append(st)
+
+    sections = []
+    for label, comps in SECTIONS:
+        items = []
+        for c in comps:
+            if by_company.get(c):
+                items.append({"company": c, "fresh": True, "bullets": by_company[c]})
+            else:
+                r = RECAPS.get(c)
+                items.append({"company": c, "fresh": False,
+                              "last": (r or {}).get("title", ""),
+                              "last_date": (r or {}).get("date", "")})
+        sections.append({"label": label, "items": items})
+
+    edition = dict(EDITION_META)
+    edition["exec_summary"] = [t for t in (exec_summary or []) if t][:3]
+    edition["sections"] = sections
+
+    body_html = render.render(edition)
+    fresh = sum(len(v) for v in by_company.values())
+    quiet = sum(1 for sec in sections for i in sec["items"] if not i.get("fresh"))
+    print(f"  [edition] {fresh} fresh story/ies across {len(by_company)} companies, "
+          f"{quiet} quiet, {len(body_html)} bytes of HTML.")
+
+    # Exact URLs straight from the edition — no href scraping, nothing dropped.
+    SENT_STORIES.extend({"title": st["headline"], "url": st["url"]} for st in kept)
+
+    return _send_email(EDITION_META["recipients"], subject, body_html)
+
+
 def dispatch_tool(name: str, inputs: dict) -> str:
     if name == "search_news":
         return _search_news(inputs["query"])
     if name == "fetch_rss_news":
         return _fetch_rss_news(inputs["company"])
-    if name == "send_email":
-        return _send_email(inputs["to"], inputs["subject"], inputs["body_html"])
+    if name == "submit_edition":
+        return _submit_edition(inputs.get("subject", ""),
+                               inputs.get("exec_summary", []),
+                               inputs.get("stories", []))
     return f"Unknown tool: {name}"
 
 
@@ -289,16 +315,44 @@ TOOLS = [
         },
     },
     {
-        "name": "send_email",
-        "description": "Send an HTML email to one or more recipients via SendGrid.",
+        "name": "submit_edition",
+        "description": (
+            "Publish today's newsletter. Call this ONCE, after researching every "
+            "company. Provide the content only — the newsletter's own template "
+            "renders the HTML and emails it. Do not write HTML anywhere."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
-                "to": {"type": "string", "description": "Comma-separated recipient email addresses"},
-                "subject": {"type": "string", "description": "Email subject line"},
-                "body_html": {"type": "string", "description": "Full HTML body of the email"},
+                "subject": {"type": "string",
+                            "description": "Email subject line"},
+                "exec_summary": {
+                    "type": "array",
+                    "description": "The 3 most important things today, one sentence each.",
+                    "items": {"type": "string"},
+                },
+                "stories": {
+                    "type": "array",
+                    "description": (
+                        "One entry per genuinely new story. Omit companies with no "
+                        "news — those are added automatically. Max 2 per company."
+                    ),
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "company": {"type": "string", "enum": COMPANIES},
+                            "headline": {"type": "string",
+                                         "description": "The story headline."},
+                            "why": {"type": "string",
+                                    "description": "One sentence: why it matters to us."},
+                            "url": {"type": "string",
+                                    "description": "Article URL copied EXACTLY from a tool result."},
+                        },
+                        "required": ["company", "headline", "why", "url"],
+                    },
+                },
             },
-            "required": ["to", "subject", "body_html"],
+            "required": ["subject", "exec_summary", "stories"],
         },
     },
 ]
@@ -394,53 +448,49 @@ is about any of these, SKIP it and look for genuinely new developments only:
 
     # The most recent story we sent per company, so the "no news today" line can
     # remind the reader what the last development was.
-    last_per_company = hist.last_story_per_company(history_entries, COMPANIES)
-    last_news_block = ""
-    if last_per_company:
-        lines = "\n".join(
-            f'- {c} → "No major news today (last major news: {v["title"]})"'
-            for c, v in last_per_company.items()
-        )
-        last_news_block = f"""
-
-NO-NEWS LINES — MANDATORY. For EVERY company below that has no fresh story
-today, you MUST use this EXACT line (you may lightly shorten the recap, but
-keep the "(last major news: ...)" parenthetical). Do not drop it for any
-company. Companies NOT listed here get a plain "No major news today.":
-{lines}
-"""
-
+    RECAPS.update(hist.last_story_per_company(history_entries, COMPANIES))
+    EDITION_META.update({
+        "brand": BRAND,
+        "tagline": TAGLINE,
+        "date_display": today,
+        "footer": f"{BRAND} | {today} | Confidential",
+        "recipients": recipient_str,
+    })
     system = (
-        "You are an AI that produces a daily business intelligence newsletter for RK Group. "
-        "You have tools to search news and send email. Be concise and factual. "
+        "You research and publish a daily business intelligence newsletter for RK Group. "
+        "You have tools to search news and to publish the edition. Be concise and factual. "
         "Only include genuinely NEW news from the past day. Never repeat a story that was "
         "already covered in a previous newsletter, even if a different outlet reported it. "
-        "If no fresh news exists for a company, say 'No major news today.'"
+        "You never write HTML — you return content and the template does the rest."
     )
 
-    prompt = f"""Today is {today}. Produce and send the RK Group Daily Intelligence Newsletter.
+    prompt = f"""Today is {today}. Research and publish the RK Group Daily Intelligence Newsletter.
 
 COMPANIES TO RESEARCH:
 {company_list}
 
 RK GROUP CONTEXT:
 {RK_GROUP_CONTEXT}
-{exclusion_block}{last_news_block}
+{exclusion_block}
 STEPS:
-1. For each company, use search_news and fetch_rss_news to find news from the past day. The tools only return stories not already sent, but if a result clearly matches an ALREADY COVERED item above, skip it anyway.
-2. Write a clean HTML newsletter email with:
-   - Subject: "RK Intelligence | {today} | [1-line hook from top story]"
-   - Header: "RK Group Intelligence" + date
-   - Executive Summary: 3 most important things today
-   - One section per company with 2-3 bullets: what happened + why it matters
-   - Each bullet MUST end with a "Read more →" hyperlink using the article's URL, e.g.: <a href="URL" style="color:#0066cc;">Read more →</a>
-   - Only include bullets where you have a real URL from the search results — no URL, no bullet
-   - For a company with no fresh news today, use the EXACT "no-news line" given for it in the NO-NEWS LINES section above — every company listed there MUST get its "(last major news: ...)" parenthetical, with NO exceptions or omissions. Companies not listed there get a plain "No major news today."
-   - Footer: "RK Group Intelligence | {today} | Confidential"
-   - Clean white background, Arial font, mobile-friendly inline styles
-3. Send the email to: {recipient_str}
+1. For each company, use search_news and fetch_rss_news to find news from the past day.
+   The tools already filter out anything previously sent, but if a result clearly matches
+   an ALREADY COVERED item above, skip it anyway.
+2. Call submit_edition ONCE with:
+   - subject: "RK Intelligence | {today} | <short hook from the top story>"
+   - exec_summary: the 3 most important things today, one sentence each
+   - stories: one entry per genuinely new story — company (from the list above),
+     headline, why (one sentence on why it matters to RK Group), and url
 
-Write the newsletter directly in the send_email call — do not return it as text."""
+RULES:
+- A story needs a real URL taken EXACTLY from a tool result. No URL, no story;
+  a URL that wasn't in the results is discarded before sending.
+- At most 2 stories per company. Quality over filling every company.
+- Do NOT write any HTML, and do NOT mention companies with no news. The
+  newsletter template renders the layout and adds the quiet companies with
+  their last-known story automatically.
+- If nothing is new anywhere, still call submit_edition with an empty stories list.
+"""
 
     result = run_agent(system, prompt)
     print("\nDone.")
